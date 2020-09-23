@@ -1,4 +1,3 @@
-from antlr4.tree.Tree import TerminalNode
 from .generated.MiniDecafLexer import MiniDecafLexer
 from .generated.MiniDecafParser import MiniDecafParser
 from .generated.MiniDecafVisitor import MiniDecafVisitor
