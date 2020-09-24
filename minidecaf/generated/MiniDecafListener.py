@@ -53,5 +53,14 @@ class MiniDecafListener(ParseTreeListener):
         pass
 
 
+    # Enter a parse tree produced by MiniDecafParser#unary.
+    def enterUnary(self, ctx:MiniDecafParser.UnaryContext):
+        pass
+
+    # Exit a parse tree produced by MiniDecafParser#unary.
+    def exitUnary(self, ctx:MiniDecafParser.UnaryContext):
+        pass
+
+
 
 del MiniDecafParser

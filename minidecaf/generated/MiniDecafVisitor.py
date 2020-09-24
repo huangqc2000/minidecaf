@@ -34,5 +34,10 @@ class MiniDecafVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by MiniDecafParser#unary.
+    def visitUnary(self, ctx:MiniDecafParser.UnaryContext):
+        return self.visitChildren(ctx)
+
+
 
 del MiniDecafParser
