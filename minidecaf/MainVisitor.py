@@ -8,7 +8,7 @@ INT_MIN = -2147483648
 class MainVisitor(MiniDecafVisitor):
     def __init__(self):
         self.asm = ""
-        self.containsMain = False;
+        self.containsMain = False
 
     def visitProg(self, ctx: MiniDecafParser.ProgContext):
         self.visit(ctx.func())
@@ -18,12 +18,12 @@ class MainVisitor(MiniDecafVisitor):
         return NoType()
 
     def visitFunc(self, ctx: MiniDecafParser.FuncContext):
-        funcName = ctx.IDENT().getText()
+        funcName = ctx.Ident().getText()
         if funcName == "main":
-            self.containsMain = True;
+            self.containsMain = True
         self.asm += "\n".join(["\t.text","\t.global " + funcName,funcName +":"])
         self.asm += "\n"
-        self.visit(ctx.stmt());
+        self.visit(ctx.stmt())
         return NoType()
 
     def visitStmt(self, ctx: MiniDecafParser.StmtContext):
@@ -32,7 +32,7 @@ class MainVisitor(MiniDecafVisitor):
         return NoType()
 
     def visitExpr(self, ctx: MiniDecafParser.ExprContext):
-        numNode = ctx.NUM()
+        numNode = ctx.Integer()
         numInt = int(numNode.getText()) 
         if numInt < 0 or numInt > INT_MAX:
             raise Exception("Int overflow")

@@ -22,11 +22,11 @@ null
 null
 null
 null
-Whitespace
+WS
 COMMENT
 LINE_COMMENT
-Ident
-Integer
+IDENT
+NUM
 
 rule names:
 prog

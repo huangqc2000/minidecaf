@@ -11,16 +11,18 @@ else:
 
 def serializedATN():
     with StringIO() as buf:
-        buf.write("\3\u608b\ua72a\u8133\ub9ed\u417c\u3be7\u7786\u5964\3\16")
-        buf.write(" \4\2\t\2\4\3\t\3\4\4\t\4\4\5\t\5\4\6\t\6\3\2\3\2\3\2")
-        buf.write("\3\3\3\3\3\3\3\3\3\3\3\3\3\3\3\3\3\4\3\4\3\5\3\5\3\5\3")
-        buf.write("\5\3\6\3\6\3\6\2\2\7\2\4\6\b\n\2\2\2\32\2\f\3\2\2\2\4")
-        buf.write("\17\3\2\2\2\6\27\3\2\2\2\b\31\3\2\2\2\n\35\3\2\2\2\f\r")
-        buf.write("\5\4\3\2\r\16\7\2\2\3\16\3\3\2\2\2\17\20\5\6\4\2\20\21")
-        buf.write("\7\r\2\2\21\22\7\3\2\2\22\23\7\4\2\2\23\24\7\5\2\2\24")
-        buf.write("\25\5\b\5\2\25\26\7\6\2\2\26\5\3\2\2\2\27\30\7\7\2\2\30")
-        buf.write("\7\3\2\2\2\31\32\7\b\2\2\32\33\5\n\6\2\33\34\7\t\2\2\34")
-        buf.write("\t\3\2\2\2\35\36\7\16\2\2\36\13\3\2\2\2\2")
+        buf.write("\3\u608b\ua72a\u8133\ub9ed\u417c\u3be7\u7786\u5964\3\21")
+        buf.write("\'\4\2\t\2\4\3\t\3\4\4\t\4\4\5\t\5\4\6\t\6\4\7\t\7\3\2")
+        buf.write("\3\2\3\2\3\3\3\3\3\3\3\3\3\3\3\3\3\3\3\3\3\4\3\4\3\5\3")
+        buf.write("\5\3\5\3\5\3\6\3\6\3\7\3\7\3\7\5\7%\n\7\3\7\2\2\b\2\4")
+        buf.write("\6\b\n\f\2\3\3\2\n\f\2!\2\16\3\2\2\2\4\21\3\2\2\2\6\31")
+        buf.write("\3\2\2\2\b\33\3\2\2\2\n\37\3\2\2\2\f$\3\2\2\2\16\17\5")
+        buf.write("\4\3\2\17\20\7\2\2\3\20\3\3\2\2\2\21\22\5\6\4\2\22\23")
+        buf.write("\7\20\2\2\23\24\7\3\2\2\24\25\7\4\2\2\25\26\7\5\2\2\26")
+        buf.write("\27\5\b\5\2\27\30\7\6\2\2\30\5\3\2\2\2\31\32\7\7\2\2\32")
+        buf.write("\7\3\2\2\2\33\34\7\b\2\2\34\35\5\n\6\2\35\36\7\t\2\2\36")
+        buf.write("\t\3\2\2\2\37 \5\f\7\2 \13\3\2\2\2!\"\t\2\2\2\"%\5\f\7")
+        buf.write("\2#%\7\21\2\2$!\3\2\2\2$#\3\2\2\2%\r\3\2\2\2\3$")
         return buf.getvalue()
 
 
@@ -35,20 +37,21 @@ class MiniDecafParser ( Parser ):
     sharedContextCache = PredictionContextCache()
 
     literalNames = [ "<INVALID>", "'('", "')'", "'{'", "'}'", "'int'", "'return'", 
-                     "';'" ]
+                     "';'", "'-'", "'!'", "'~'" ]
 
     symbolicNames = [ "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
                       "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
-                      "Whitespace", "COMMENT", "LINE_COMMENT", "Ident", 
-                      "Integer" ]
+                      "<INVALID>", "<INVALID>", "<INVALID>", "WS", "COMMENT", 
+                      "LINE_COMMENT", "IDENT", "NUM" ]
 
     RULE_prog = 0
     RULE_func = 1
     RULE_ty = 2
     RULE_stmt = 3
     RULE_expr = 4
+    RULE_unary = 5
 
-    ruleNames =  [ "prog", "func", "ty", "stmt", "expr" ]
+    ruleNames =  [ "prog", "func", "ty", "stmt", "expr", "unary" ]
 
     EOF = Token.EOF
     T__0=1
@@ -58,11 +61,14 @@ class MiniDecafParser ( Parser ):
     T__4=5
     T__5=6
     T__6=7
-    Whitespace=8
-    COMMENT=9
-    LINE_COMMENT=10
-    Ident=11
-    Integer=12
+    T__7=8
+    T__8=9
+    T__9=10
+    WS=11
+    COMMENT=12
+    LINE_COMMENT=13
+    IDENT=14
+    NUM=15
 
     def __init__(self, input:TokenStream, output:TextIO = sys.stdout):
         super().__init__(input, output)
@@ -112,9 +118,9 @@ class MiniDecafParser ( Parser ):
         self.enterRule(localctx, 0, self.RULE_prog)
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 10
+            self.state = 12
             self.func()
-            self.state = 11
+            self.state = 13
             self.match(MiniDecafParser.EOF)
         except RecognitionException as re:
             localctx.exception = re
@@ -135,8 +141,8 @@ class MiniDecafParser ( Parser ):
             return self.getTypedRuleContext(MiniDecafParser.TyContext,0)
 
 
-        def Ident(self):
-            return self.getToken(MiniDecafParser.Ident, 0)
+        def IDENT(self):
+            return self.getToken(MiniDecafParser.IDENT, 0)
 
         def stmt(self):
             return self.getTypedRuleContext(MiniDecafParser.StmtContext,0)
@@ -168,19 +174,19 @@ class MiniDecafParser ( Parser ):
         self.enterRule(localctx, 2, self.RULE_func)
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 13
-            self.ty()
-            self.state = 14
-            self.match(MiniDecafParser.Ident)
             self.state = 15
-            self.match(MiniDecafParser.T__0)
+            self.ty()
             self.state = 16
-            self.match(MiniDecafParser.T__1)
+            self.match(MiniDecafParser.IDENT)
             self.state = 17
-            self.match(MiniDecafParser.T__2)
+            self.match(MiniDecafParser.T__0)
             self.state = 18
-            self.stmt()
+            self.match(MiniDecafParser.T__1)
             self.state = 19
+            self.match(MiniDecafParser.T__2)
+            self.state = 20
+            self.stmt()
+            self.state = 21
             self.match(MiniDecafParser.T__3)
         except RecognitionException as re:
             localctx.exception = re
@@ -224,7 +230,7 @@ class MiniDecafParser ( Parser ):
         self.enterRule(localctx, 4, self.RULE_ty)
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 21
+            self.state = 23
             self.match(MiniDecafParser.T__4)
         except RecognitionException as re:
             localctx.exception = re
@@ -271,11 +277,11 @@ class MiniDecafParser ( Parser ):
         self.enterRule(localctx, 6, self.RULE_stmt)
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 23
-            self.match(MiniDecafParser.T__5)
-            self.state = 24
-            self.expr()
             self.state = 25
+            self.match(MiniDecafParser.T__5)
+            self.state = 26
+            self.expr()
+            self.state = 27
             self.match(MiniDecafParser.T__6)
         except RecognitionException as re:
             localctx.exception = re
@@ -292,8 +298,9 @@ class MiniDecafParser ( Parser ):
             super().__init__(parent, invokingState)
             self.parser = parser
 
-        def Integer(self):
-            return self.getToken(MiniDecafParser.Integer, 0)
+        def unary(self):
+            return self.getTypedRuleContext(MiniDecafParser.UnaryContext,0)
+
 
         def getRuleIndex(self):
             return MiniDecafParser.RULE_expr
@@ -321,8 +328,79 @@ class MiniDecafParser ( Parser ):
         self.enterRule(localctx, 8, self.RULE_expr)
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 27
-            self.match(MiniDecafParser.Integer)
+            self.state = 29
+            self.unary()
+        except RecognitionException as re:
+            localctx.exception = re
+            self._errHandler.reportError(self, re)
+            self._errHandler.recover(self, re)
+        finally:
+            self.exitRule()
+        return localctx
+
+
+    class UnaryContext(ParserRuleContext):
+
+        def __init__(self, parser, parent:ParserRuleContext=None, invokingState:int=-1):
+            super().__init__(parent, invokingState)
+            self.parser = parser
+
+        def unary(self):
+            return self.getTypedRuleContext(MiniDecafParser.UnaryContext,0)
+
+
+        def NUM(self):
+            return self.getToken(MiniDecafParser.NUM, 0)
+
+        def getRuleIndex(self):
+            return MiniDecafParser.RULE_unary
+
+        def enterRule(self, listener:ParseTreeListener):
+            if hasattr( listener, "enterUnary" ):
+                listener.enterUnary(self)
+
+        def exitRule(self, listener:ParseTreeListener):
+            if hasattr( listener, "exitUnary" ):
+                listener.exitUnary(self)
+
+        def accept(self, visitor:ParseTreeVisitor):
+            if hasattr( visitor, "visitUnary" ):
+                return visitor.visitUnary(self)
+            else:
+                return visitor.visitChildren(self)
+
+
+
+
+    def unary(self):
+
+        localctx = MiniDecafParser.UnaryContext(self, self._ctx, self.state)
+        self.enterRule(localctx, 10, self.RULE_unary)
+        self._la = 0 # Token type
+        try:
+            self.state = 34
+            self._errHandler.sync(self)
+            token = self._input.LA(1)
+            if token in [MiniDecafParser.T__7, MiniDecafParser.T__8, MiniDecafParser.T__9]:
+                self.enterOuterAlt(localctx, 1)
+                self.state = 31
+                _la = self._input.LA(1)
+                if not((((_la) & ~0x3f) == 0 and ((1 << _la) & ((1 << MiniDecafParser.T__7) | (1 << MiniDecafParser.T__8) | (1 << MiniDecafParser.T__9))) != 0)):
+                    self._errHandler.recoverInline(self)
+                else:
+                    self._errHandler.reportMatch(self)
+                    self.consume()
+                self.state = 32
+                self.unary()
+                pass
+            elif token in [MiniDecafParser.NUM]:
+                self.enterOuterAlt(localctx, 2)
+                self.state = 33
+                self.match(MiniDecafParser.NUM)
+                pass
+            else:
+                raise NoViableAltException(self)
+
         except RecognitionException as re:
             localctx.exception = re
             self._errHandler.reportError(self, re)
