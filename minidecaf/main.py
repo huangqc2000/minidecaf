@@ -2,7 +2,6 @@ from minidecaf.MainVisitor import MainVisitor
 import sys
 import argparse
 from antlr4 import *
-from .utils import *
 
 from .generated.MiniDecafLexer import MiniDecafLexer
 from .generated.MiniDecafParser import MiniDecafParser
@@ -11,18 +10,17 @@ from .generated.MiniDecafParser import MiniDecafParser
 def parseArgs(argv):
     parser = argparse.ArgumentParser(description="MiniDecaf compiler")
     parser.add_argument("inputfile", type=str,
-                       help="the input C file")
+                        help="the input C file")
     parser.add_argument("outputfile", type=str, nargs="?",
-                       help="the output assembly file")
+                        help="the output assembly file")
     return parser.parse_args()
-
 
 
 def main():
     args = parseArgs(sys.argv)
     inputStream = FileStream(args.inputfile)
     lexer = MiniDecafLexer(inputStream)
-    #dumpLexerTokens(lexer)
+    # dumpLexerTokens(lexer)
     tokenStream = CommonTokenStream(lexer)
     parser = MiniDecafParser(tokenStream)
     parser._errHandler = BailErrorStrategy()
@@ -33,6 +31,3 @@ def main():
     print(asm)
     # with open(args.outputfile, 'w') as fout:
     #     fout.write(asm)
-            
-
-

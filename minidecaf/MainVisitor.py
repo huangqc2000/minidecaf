@@ -2,6 +2,7 @@ from .generated.MiniDecafLexer import MiniDecafLexer
 from .generated.MiniDecafParser import MiniDecafParser
 from .generated.MiniDecafVisitor import MiniDecafVisitor
 from .Type import *
+from .utils import *
 
 INT_MAX = 2147483647
 INT_MIN = -2147483648
@@ -35,32 +36,61 @@ class MainVisitor(MiniDecafVisitor):
         return NoType()
 
     def visitExpr(self, ctx: MiniDecafParser.ExprContext):
-        return self.visit(ctx.unary())
+        return self.visit(ctx.add())
 
-    def visitUnary(self, ctx: MiniDecafParser.UnaryContext):
-        if len(ctx.children) == 1:
-            numNode = ctx.Integer()
-            num = numNode.getText()
-            if int(num) > INT_MAX:
-                raise Exception("too large number")
-            self.asm += "".join(["# number " + num + "\n", "\tli t0, " + num + "\n"])
+    def visitAdd(self, ctx: MiniDecafParser.AddContext):
+        if len(ctx.children) > 1:
+            self.visit(ctx.add(0))
+            self.visit(ctx.add(1))
+            self.pop("t1")
+            self.pop("t0")
+            op = ctx.children[1].getText()
+            self.asm += RulesToAsm[op]
             self.push("t0")
             return IntType()
         else:
+            return self.visit(ctx.mul())
+
+    def visitMul(self, ctx: MiniDecafParser.MulContext):
+        if len(ctx.children) > 1:
+            self.visit(ctx.mul(0))
+            self.visit(ctx.mul(1))
+            self.pop("t1")
+            self.pop("t0")
+            op = ctx.children[1].getText()
+            self.asm += RulesToAsm[op]
+            self.push("t0")
+            return IntType()
+        else:
+            return self.visit(ctx.unary())
+
+    def visitUnary(self, ctx: MiniDecafParser.UnaryContext):
+        if len(ctx.children) > 1:
             self.visit(ctx.unary())
             op = ctx.children[0].getText()
-            self.asm += "# " + op + " int\n"
+            # 特判一下 - 因为与减符号相同无法使用字典
             self.pop("t0")
             if op == "-":
+                self.asm += "# - int\n"
                 self.asm += "\tneg t0, t0\n"
-            elif op == "!":
-                self.asm += "\tseqz t0, t0\n"
-            elif op == "~":
-                self.asm += "\tnot t0, t0\n"
             else:
-                raise Exception("operation should be -|!|~")
+                self.asm += RulesToAsm[op]
+            self.push("t0")
+            return IntType()
+        else:
+            return self.visit(ctx.primary())
+
+    def visitNumPrimary(self, ctx: MiniDecafParser.NumPrimaryContext):
+        if int(ctx.Integer().getText()) > INT_MAX:
+            raise Exception("large number")
+
+        self.asm += "".join(["# number " + ctx.Integer().getText() + "\n",
+                             "\tli t0, " + ctx.Integer().getText() + "\n"])
         self.push("t0")
         return IntType()
+
+    def visitParenthesizedPrimary(self, ctx: MiniDecafParser.ParenthesizedPrimaryContext):
+        return self.visit(ctx.expr())
 
     # 将寄存器的值压入栈中
     def push(self, reg: str):
