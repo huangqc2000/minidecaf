@@ -1,9 +1,13 @@
-
 class AbstractType:
     def __init__(self, name) -> None:
         self.name = name
+
     def equals(self, type) -> bool:
         return True
+
+    def __str__(self):
+        return self.name
+
 
 # 没有类型的数节点
 class NoType(AbstractType):
@@ -11,7 +15,8 @@ class NoType(AbstractType):
         super().__init__("NoType")
 
     def equals(self, type) -> bool:
-        return isinstance(type,NoType)
+        return isinstance(type, NoType)
+
 
 # 整形
 class IntType(AbstractType):
@@ -19,6 +24,4 @@ class IntType(AbstractType):
         super().__init__("IntType")
 
     def equals(self, type) -> bool:
-        return isinstance(type,IntType)
-
-
+        return isinstance(type, IntType)

@@ -14,6 +14,8 @@ RulesToAsm = {"+": "# int + int\n\tadd t0, t0, t1\n",
               ">": "# >\n\tsgt t0, t0, t1\n",
               ">=": "# >=\n\tslt t0, t0, t1\n\txori t0, t0, 1\n",
               }
+INT_MAX = 2147483647
+INT_MIN = -2147483648
 
 
 def getSymbolicNames(Lexer: type):
