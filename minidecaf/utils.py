@@ -4,7 +4,15 @@ RulesToAsm = {"+": "# int + int\n\tadd t0, t0, t1\n",
               "/": "# /\n\tdiv t0, t0, t1\n",
               "%": "# %\n\trem t0, t0, t1\n",
               "!": "# ! int\n\tseqz t0, t0\n",
-              "~": "# ~ int\n\tnot t0, t0\n"
+              "~": "# ~ int\n\tnot t0, t0\n",
+              "||": "# int || int\tsnez t0, t0\n\tsnez t1, t1\n\tor t0, t0, t1\n",
+              "&&": "# int && int\tsnez t0, t0\n\tsnez t1, t1\n\tand t0, t0, t1\n",
+              "==": "# equal\n\tsub t0, t0, t1\n\tseqz t0, t0\n",
+              "!=": "# not equal\n\tsub t0, t0, t1\n\tsnez t0, t0\n",
+              "<": "# <\n\tslt t0, t0, t1\n",
+              "<=": "# <=\n\tsgt t0, t0, t1\n\txori t0, t0, 1\n",
+              ">": "# >\n\tsgt t0, t0, t1\n",
+              ">=": "# >=\n\tslt t0, t0, t1\n\txori t0, t0, 1\n",
               }
 
 

@@ -36,7 +36,63 @@ class MainVisitor(MiniDecafVisitor):
         return NoType()
 
     def visitExpr(self, ctx: MiniDecafParser.ExprContext):
-        return self.visit(ctx.add())
+        return self.visit(ctx.lor())
+
+    def visitLor(self, ctx: MiniDecafParser.LorContext):
+        if len(ctx.children) > 1:
+            self.visit(ctx.lor(0))
+            self.visit(ctx.lor(1))
+            self.pop("t1")
+            self.pop("t0")
+            self.asm += RulesToAsm["||"]
+            self.push("t0")
+            return IntType()
+        else:
+            return self.visit(ctx.land())
+
+    def visitLand(self, ctx: MiniDecafParser.LandContext):
+        if len(ctx.children) > 1:
+            self.visit(ctx.land(0))
+            self.visit(ctx.land(1))
+            self.pop("t1")
+            self.pop("t0")
+            self.asm += RulesToAsm["&&"]
+            self.push("t0")
+            return IntType()
+        else:
+            return self.visit(ctx.equ())
+
+    def visitEqu(self, ctx: MiniDecafParser.EquContext):
+        if len(ctx.children) > 1:
+            self.visit(ctx.equ(0))
+            self.visit(ctx.equ(1))
+            self.pop("t1")
+            self.pop("t0")
+            op = ctx.children[1].getText()
+            tmpAsm = RulesToAsm.get(op, None)
+            if tmpAsm is None:
+                raise Exception("equ rules error")
+            self.asm += tmpAsm
+            self.push("t0")
+            return IntType()
+        else:
+            return self.visit(ctx.rel())
+
+    def visitRel(self, ctx: MiniDecafParser.RelContext):
+        if len(ctx.children) > 1:
+            self.visit(ctx.rel(0))
+            self.visit(ctx.rel(1))
+            self.pop("t1")
+            self.pop("t0")
+            op = ctx.children[1].getText()
+            tmpAsm = RulesToAsm.get(op, None)
+            if tmpAsm is None:
+                raise Exception("rel rules error")
+            self.asm += tmpAsm
+            self.push("t0")
+            return IntType()
+        else:
+            return self.visit(ctx.add())
 
     def visitAdd(self, ctx: MiniDecafParser.AddContext):
         if len(ctx.children) > 1:
@@ -45,7 +101,10 @@ class MainVisitor(MiniDecafVisitor):
             self.pop("t1")
             self.pop("t0")
             op = ctx.children[1].getText()
-            self.asm += RulesToAsm[op]
+            tmpAsm = RulesToAsm.get(op, None)
+            if tmpAsm is None:
+                raise Exception("add rules error")
+            self.asm += tmpAsm
             self.push("t0")
             return IntType()
         else:
@@ -58,7 +117,10 @@ class MainVisitor(MiniDecafVisitor):
             self.pop("t1")
             self.pop("t0")
             op = ctx.children[1].getText()
-            self.asm += RulesToAsm[op]
+            tmpAsm = RulesToAsm.get(op, None)
+            if tmpAsm is None:
+                raise Exception("mul rules error")
+            self.asm += tmpAsm
             self.push("t0")
             return IntType()
         else:
@@ -74,7 +136,10 @@ class MainVisitor(MiniDecafVisitor):
                 self.asm += "# - int\n"
                 self.asm += "\tneg t0, t0\n"
             else:
-                self.asm += RulesToAsm[op]
+                tmpAsm = RulesToAsm.get(op, None)
+                if tmpAsm is None:
+                    raise Exception("unary rules error")
+                self.asm += tmpAsm
             self.push("t0")
             return IntType()
         else:
