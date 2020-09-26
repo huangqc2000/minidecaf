@@ -10,7 +10,7 @@ INT_MIN = -2147483648
 
 class MainVisitor(MiniDecafVisitor):
     def __init__(self):
-        self.asm = ""
+        self.asm = []
         self.containsMain = False
 
     def visitProg(self, ctx: MiniDecafParser.ProgContext):
@@ -24,15 +24,15 @@ class MainVisitor(MiniDecafVisitor):
         funcName = ctx.Ident().getText()
         if funcName == "main":
             self.containsMain = True
-        self.asm += "".join(["\t.text\n", "\t.global " + funcName + "\n", funcName + ":\n"])
+        self.asm.extend(["\t.text\n", "\t.global " + funcName + "\n", funcName + ":\n"])
         self.visit(ctx.stmt())
         return NoType()
 
     def visitStmt(self, ctx: MiniDecafParser.StmtContext):
         self.visit(ctx.expr())
-        self.asm += "# ret\n"
+        self.asm.append("# ret\n")
         self.pop("a0")
-        self.asm += "\tret\n"
+        self.asm.append("\tret\n")
         return NoType()
 
     def visitExpr(self, ctx: MiniDecafParser.ExprContext):
@@ -44,7 +44,7 @@ class MainVisitor(MiniDecafVisitor):
             self.visit(ctx.lor(1))
             self.pop("t1")
             self.pop("t0")
-            self.asm += RulesToAsm["||"]
+            self.asm.append(RulesToAsm["||"])
             self.push("t0")
             return IntType()
         else:
@@ -56,7 +56,7 @@ class MainVisitor(MiniDecafVisitor):
             self.visit(ctx.land(1))
             self.pop("t1")
             self.pop("t0")
-            self.asm += RulesToAsm["&&"]
+            self.asm.append(RulesToAsm["&&"])
             self.push("t0")
             return IntType()
         else:
@@ -72,7 +72,7 @@ class MainVisitor(MiniDecafVisitor):
             tmpAsm = RulesToAsm.get(op, None)
             if tmpAsm is None:
                 raise Exception("equ rules error")
-            self.asm += tmpAsm
+            self.asm.append(tmpAsm)
             self.push("t0")
             return IntType()
         else:
@@ -88,7 +88,7 @@ class MainVisitor(MiniDecafVisitor):
             tmpAsm = RulesToAsm.get(op, None)
             if tmpAsm is None:
                 raise Exception("rel rules error")
-            self.asm += tmpAsm
+            self.asm.append(tmpAsm)
             self.push("t0")
             return IntType()
         else:
@@ -104,7 +104,7 @@ class MainVisitor(MiniDecafVisitor):
             tmpAsm = RulesToAsm.get(op, None)
             if tmpAsm is None:
                 raise Exception("add rules error")
-            self.asm += tmpAsm
+            self.asm.append(tmpAsm)
             self.push("t0")
             return IntType()
         else:
@@ -120,7 +120,7 @@ class MainVisitor(MiniDecafVisitor):
             tmpAsm = RulesToAsm.get(op, None)
             if tmpAsm is None:
                 raise Exception("mul rules error")
-            self.asm += tmpAsm
+            self.asm.append(tmpAsm)
             self.push("t0")
             return IntType()
         else:
@@ -133,13 +133,13 @@ class MainVisitor(MiniDecafVisitor):
             # 特判一下 - 因为与减符号相同无法使用字典
             self.pop("t0")
             if op == "-":
-                self.asm += "# - int\n"
-                self.asm += "\tneg t0, t0\n"
+                self.asm.append("# - int\n")
+                self.asm.append("\tneg t0, t0\n")
             else:
                 tmpAsm = RulesToAsm.get(op, None)
                 if tmpAsm is None:
                     raise Exception("unary rules error")
-                self.asm += tmpAsm
+                self.asm.append(tmpAsm)
             self.push("t0")
             return IntType()
         else:
@@ -149,8 +149,8 @@ class MainVisitor(MiniDecafVisitor):
         if int(ctx.Integer().getText()) > INT_MAX:
             raise Exception("large number")
 
-        self.asm += "".join(["# number " + ctx.Integer().getText() + "\n",
-                             "\tli t0, " + ctx.Integer().getText() + "\n"])
+        self.asm.extend(["# number " + ctx.Integer().getText() + "\n",
+                         "\tli t0, " + ctx.Integer().getText() + "\n"])
         self.push("t0")
         return IntType()
 
@@ -159,8 +159,8 @@ class MainVisitor(MiniDecafVisitor):
 
     # 将寄存器的值压入栈中
     def push(self, reg: str):
-        self.asm += "".join(["# push " + reg + "\n", "\taddi sp, sp, -4\n", "\tsw " + reg + ", 0(sp)\n"])
+        self.asm.extend(["# push " + reg + "\n", "\taddi sp, sp, -4\n", "\tsw " + reg + ", 0(sp)\n"])
 
     # 栈顶的值弹出到寄存器中
     def pop(self, reg: str):
-        self.asm += "".join(["# pop " + reg + "\n", "\tlw " + reg + ", 0(sp)\n", "\taddi sp, sp, 4\n"])
+        self.asm.extend(["# pop " + reg + "\n", "\tlw " + reg + ", 0(sp)\n", "\taddi sp, sp, 4\n"])
