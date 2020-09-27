@@ -13,10 +13,14 @@ class MainVisitor(MiniDecafVisitor):
         self.localCount = 0
 
         self.currentFunc = ""
-        # 符号表
+        # 符号表 栈
         self.symbolTable = []
         # 条件语句和条件表达式所用label编号
         self.condNo = 0
+        # 循环label编号
+        self.loopNo = 0
+        # 当前位置的循环编号 栈
+        self.loopNos = []
 
     def visitProg(self, ctx: MiniDecafParser.ProgContext):
         self.visit(ctx.func())
@@ -107,6 +111,102 @@ class MainVisitor(MiniDecafVisitor):
         for blockItem in ctx.blockItem():
             self.visit(blockItem)
         self.symbolTable.pop()
+        return NoType()
+
+    def visitWhileStmt(self, ctx: MiniDecafParser.WhileStmtContext):
+        currentLoopNo = self.increaseLoopNo()
+        self.asm.append("# while\n")
+        self.asm.append(".beforeLoop" + currentLoopNo + ":\n")
+        self.asm.append(".continueLoop" + currentLoopNo + ":\n")
+        self.visit(ctx.expr())
+        self.pop("t0")
+        self.asm.append("\tbeqz t0, .afterLoop" + currentLoopNo + "\n")
+        # 访问循环体
+        self.loopNos.append(currentLoopNo)
+        self.visit(ctx.stmt())
+        self.loopNos.pop()
+
+        self.asm.append("\tj .beforeLoop" + currentLoopNo + "\n")
+        self.asm.append(".afterLoop" + currentLoopNo + ":\n")
+        return NoType()
+
+    def visitForStmt(self, ctx: MiniDecafParser.ForStmtContext):
+        currentLoopNo = self.increaseLoopNo()
+        self.asm.append("# for\n")
+
+        # 取出for循环中的表达式
+        initExpr = None
+        condExpr = None
+        afterExpr = None
+        for i in range(len(ctx.children)):
+            if isinstance(ctx.children[i], MiniDecafParser.ExprContext):
+                expr = ctx.children[i]
+                if ctx.children[i - 1].getText() == "(":
+                    initExpr = expr
+                elif ctx.children[i + 1].getText() == ";":
+                    condExpr = expr
+                else:
+                    afterExpr = expr
+        # 开一个新的作用域 for小括号里面
+        self.symbolTable.append({})
+        if initExpr is not None:
+            self.visit(initExpr)
+            self.addsp(1)
+        if ctx.localDecl() is not None:
+            self.visit(ctx.localDecl())
+
+        self.asm.append(".beforeLoop" + currentLoopNo + ":\n")
+        if condExpr is not None:
+            self.visit(condExpr)
+            self.asm.append("\tlw t1, 0(sp)\n")
+            self.asm.append("\taddi sp, sp, 4\n")
+            self.asm.append("\tbeqz t1, .afterLoop" + currentLoopNo + "\n")
+
+        # 访问循环体
+        self.loopNos.append(currentLoopNo)
+        # ???
+        # self.symbolTable.append({})
+        self.visit(ctx.stmt())
+        # self.symbolTable.pop()
+        self.loopNos.pop()
+
+        self.asm.append(".continueLoop" + currentLoopNo + ":\n")
+        if afterExpr is not None:
+            self.visit(afterExpr)
+            self.addsp(1)
+        self.symbolTable.pop()
+
+        self.asm.append("\tj .beforeLoop" + currentLoopNo + "\n")
+        self.asm.append(".afterLoop" + currentLoopNo + ":\n")
+        return NoType()
+
+    def visitDoStmt(self, ctx: MiniDecafParser.DoStmtContext):
+        currentLoopNo = self.increaseLoopNo()
+        self.asm.append("# do-while\n")
+
+        self.asm.append(".beforeLoop" + currentLoopNo + ":\n")
+        self.loopNos.append(currentLoopNo)
+        self.visit(ctx.stmt())
+        self.loopNos.pop()
+
+        self.asm.append(".continueLoop" + currentLoopNo + ":\n")
+        self.visit(ctx.expr())
+        self.pop("t0")
+        self.asm.append("\tbnez t0, .beforeLoop" + currentLoopNo + "\n")
+        self.asm.append(".afterLoop" + currentLoopNo + ":\n")
+
+        return NoType()
+
+    def visitBreakStmt(self, ctx: MiniDecafParser.BreakStmtContext):
+        if len(self.loopNos) == 0:
+            raise Exception("break statement not within loop")
+        self.asm.append("\tj .afterLoop" + self.loopNos[-1] + "\n")
+        return NoType()
+
+    def visitContinueStmt(self, ctx: MiniDecafParser.ContinueStmtContext):
+        if len(self.loopNos) == 0:
+            raise Exception("continue statement not within loop")
+        self.asm.append("\tj .continueLoop" + self.loopNos[-1] + "\n")
         return NoType()
 
     def visitExpr(self, ctx: MiniDecafParser.ExprContext):
@@ -271,6 +371,12 @@ class MainVisitor(MiniDecafVisitor):
     def visitParenthesizedPrimary(self, ctx: MiniDecafParser.ParenthesizedPrimaryContext):
         return self.visit(ctx.expr())
 
+    # return loopNo++
+    def increaseLoopNo(self):
+        currentLoopNo = str(self.loopNo)
+        self.loopNo += 1
+        return currentLoopNo
+
     def assignStackFrame(self):
         self.asm.append("# assign stack frame\n")
         self.push("ra")
@@ -283,6 +389,9 @@ class MainVisitor(MiniDecafVisitor):
         self.pop("fp")
         self.pop("ra")
         self.asm.append("\tret\n\n")
+
+    def addsp(self, v: int):
+        self.asm.append("\taddi sp, sp, " + str(v * 4) + "\n")
 
     # 将寄存器的值压入栈中
     def push(self, reg: str):
