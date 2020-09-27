@@ -14,11 +14,12 @@ localDecl: ty Ident ('=' expr)? ';';
 stmt:
 	expr? ';' # exprStmt
 	| 'return' expr ';' # returnStmt
+	| 'if' '(' expr ')' stmt ('else' stmt)? # ifStmt
 	;
 
-expr: assign;
+expr: Ident '=' expr | ternary;
 
-assign: Ident '=' expr | lor;
+ternary: lor '?' expr ':' ternary | lor;
 
 lor: lor '||' lor | land;
 

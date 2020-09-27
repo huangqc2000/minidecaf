@@ -5,8 +5,6 @@ from .utils import *
 from .Symbol import *
 
 
-
-
 class MainVisitor(MiniDecafVisitor):
     def __init__(self):
         self.asm = []
@@ -15,7 +13,10 @@ class MainVisitor(MiniDecafVisitor):
         self.localCount = 0
 
         self.currentFunc = ""
+        # 符号表
         self.symbolTable = {}
+        # 条件语句和条件表达式所用label编号
+        self.condNo = 0
 
     def visitProg(self, ctx: MiniDecafParser.ProgContext):
         self.visit(ctx.func())
@@ -80,10 +81,24 @@ class MainVisitor(MiniDecafVisitor):
         self.asm.append("\tj .exit." + self.currentFunc + "\n")
         return NoType()
 
-    def visitExpr(self, ctx: MiniDecafParser.ExprContext):
-        return self.visit(ctx.assign())
+    def visitIfStmt(self, ctx: MiniDecafParser.IfStmtContext):
+        currentCondNo = self.condNo
+        strCurrentCondNo = str(currentCondNo)
+        self.condNo += 1
+        self.asm.append("# # if\n")  # 多一个#
+        # 获得表达式的值
+        self.visit(ctx.expr())
+        self.pop("t0")
+        self.asm.append("\tbeqz t0, .else" + strCurrentCondNo + "\n")
+        self.visit(ctx.stmt(0))
+        self.asm.append("\tj .afterCond" + strCurrentCondNo + "\n")
+        self.asm.append(".else" + strCurrentCondNo + ":\n")
+        if len(ctx.stmt()) > 1:
+            self.visit(ctx.stmt(1))
+        self.asm.append(".afterCond" + strCurrentCondNo + ":\n")
+        return NoType()
 
-    def visitAssign(self, ctx: MiniDecafParser.AssignContext):
+    def visitExpr(self, ctx: MiniDecafParser.ExprContext):
         if len(ctx.children) > 1:
             name = ctx.Ident().getText()
             symbol = self.symbolTable.get(name, None)
@@ -96,6 +111,24 @@ class MainVisitor(MiniDecafVisitor):
                 # 如果是赋值语句返回左值，对应 exprStmt 中的pop
                 self.push("t0")
                 return symbol.type
+        else:
+            return self.visit(ctx.ternary())
+
+    def visitTernary(self, ctx: MiniDecafParser.TernaryContext):
+        if len(ctx.children) > 1:
+            currentCondNo = self.condNo
+            strCurrentCondNo = str(currentCondNo)
+            self.condNo += 1
+            self.asm.append("# ternary conditional\n")
+            self.visit(ctx.lor())
+            self.pop("t0")
+            self.asm.append("\tbeqz t0, .else" + strCurrentCondNo + "\n")
+            self.visit(ctx.expr())
+            self.asm.append("\tj .afterCond" + strCurrentCondNo + "\n")
+            self.asm.append(".else" + strCurrentCondNo + ":\n")
+            self.visit(ctx.ternary())
+            self.asm.append(".afterCond" + strCurrentCondNo + ":\n")
+            return IntType()
         else:
             return self.visit(ctx.lor())
 
