@@ -14,7 +14,7 @@ class MainVisitor(MiniDecafVisitor):
 
         self.currentFunc = ""
         # 符号表
-        self.symbolTable = {}
+        self.symbolTable = []
         # 条件语句和条件表达式所用label编号
         self.condNo = 0
 
@@ -33,8 +33,13 @@ class MainVisitor(MiniDecafVisitor):
         self.assignStackFrame()
         # 记录当前位置 之后要插入
         backtracePos = len(self.asm)
+        # 为这个函数体开启一个新的作用域
+        self.symbolTable.append({})
+
         for blockItem in ctx.blockItem():
             self.visit(blockItem)
+        # 关闭作用域
+        self.symbolTable.pop()
 
         # 默认返回0
         self.asm.extend(["# return 0 as default\n", "\tli t1, 0\n", "\taddi sp, sp, -4\n", "\tsw t1, 0(sp)\n"])
@@ -50,11 +55,11 @@ class MainVisitor(MiniDecafVisitor):
     def visitLocalDecl(self, ctx: MiniDecafParser.LocalDeclContext):
         name = ctx.Ident().getText()
         # 已经声明过了
-        if self.symbolTable.__contains__(name):
+        if self.symbolTable[-1].__contains__(name):
             raise Exception("Repeated statement for" + name)
         # 加入符号表
         self.localCount += 1
-        self.symbolTable[name] = Symbol(name, -4 * self.localCount, IntType())
+        self.symbolTable[-1][name] = Symbol(name, -4 * self.localCount, IntType())
         # 初始化
         expr = ctx.expr()
         if expr is not None:
@@ -82,26 +87,32 @@ class MainVisitor(MiniDecafVisitor):
         return NoType()
 
     def visitIfStmt(self, ctx: MiniDecafParser.IfStmtContext):
-        currentCondNo = self.condNo
-        strCurrentCondNo = str(currentCondNo)
+        currentCondNo = str(self.condNo)
         self.condNo += 1
         self.asm.append("# # if\n")  # 多一个#
         # 获得表达式的值
         self.visit(ctx.expr())
         self.pop("t0")
-        self.asm.append("\tbeqz t0, .else" + strCurrentCondNo + "\n")
+        self.asm.append("\tbeqz t0, .else" + currentCondNo + "\n")
         self.visit(ctx.stmt(0))
-        self.asm.append("\tj .afterCond" + strCurrentCondNo + "\n")
-        self.asm.append(".else" + strCurrentCondNo + ":\n")
+        self.asm.append("\tj .afterCond" + currentCondNo + "\n")
+        self.asm.append(".else" + currentCondNo + ":\n")
         if len(ctx.stmt()) > 1:
             self.visit(ctx.stmt(1))
-        self.asm.append(".afterCond" + strCurrentCondNo + ":\n")
+        self.asm.append(".afterCond" + currentCondNo + ":\n")
+        return NoType()
+
+    def visitBlockStmt(self, ctx: MiniDecafParser.BlockStmtContext):
+        self.symbolTable.append({})
+        for blockItem in ctx.blockItem():
+            self.visit(blockItem)
+        self.symbolTable.pop()
         return NoType()
 
     def visitExpr(self, ctx: MiniDecafParser.ExprContext):
         if len(ctx.children) > 1:
             name = ctx.Ident().getText()
-            symbol = self.symbolTable.get(name, None)
+            symbol = self.lookupSymbol(name)
             if symbol is None:
                 raise Exception("variable {} is not defined".format(name))
             else:
@@ -116,18 +127,17 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitTernary(self, ctx: MiniDecafParser.TernaryContext):
         if len(ctx.children) > 1:
-            currentCondNo = self.condNo
-            strCurrentCondNo = str(currentCondNo)
+            currentCondNo = str(self.condNo)
             self.condNo += 1
             self.asm.append("# ternary conditional\n")
             self.visit(ctx.lor())
             self.pop("t0")
-            self.asm.append("\tbeqz t0, .else" + strCurrentCondNo + "\n")
+            self.asm.append("\tbeqz t0, .else" + currentCondNo + "\n")
             self.visit(ctx.expr())
-            self.asm.append("\tj .afterCond" + strCurrentCondNo + "\n")
-            self.asm.append(".else" + strCurrentCondNo + ":\n")
+            self.asm.append("\tj .afterCond" + currentCondNo + "\n")
+            self.asm.append(".else" + currentCondNo + ":\n")
             self.visit(ctx.ternary())
-            self.asm.append(".afterCond" + strCurrentCondNo + ":\n")
+            self.asm.append(".afterCond" + currentCondNo + ":\n")
             return IntType()
         else:
             return self.visit(ctx.lor())
@@ -250,7 +260,7 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitIdentPrimary(self, ctx: MiniDecafParser.IdentPrimaryContext):
         name = ctx.Ident().getText()
-        symbol = self.symbolTable.get(name, None)
+        symbol = self.lookupSymbol(name)
         if symbol is None:
             raise Exception("variable {} is not defined".format(name))
         else:
@@ -281,3 +291,11 @@ class MainVisitor(MiniDecafVisitor):
     # 栈顶的值弹出到寄存器中
     def pop(self, reg: str):
         self.asm.extend(["# pop " + reg + "\n", "\tlw " + reg + ", 0(sp)\n", "\taddi sp, sp, 4\n"])
+
+    # 从符号表寻找 优先从内层作用域中寻找
+    def lookupSymbol(self, v: str):
+        for i in range(len(self.symbolTable) - 1, -1, -1):
+            map = self.symbolTable[i]
+            if map.__contains__(v):
+                return map.get(v)
+        return None
