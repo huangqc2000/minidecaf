@@ -3,6 +3,7 @@ from .generated.MiniDecafParser import MiniDecafParser
 from .generated.MiniDecafVisitor import MiniDecafVisitor
 from .utils import *
 from .Symbol import *
+from .FunType import *
 
 
 class MainVisitor(MiniDecafVisitor):
@@ -21,25 +22,76 @@ class MainVisitor(MiniDecafVisitor):
         self.loopNo = 0
         # 当前位置的循环编号 栈
         self.loopNos = []
+        # 声明函数
+        self.declaredFuncTable = {}
+        # 定义函数
+        self.definedFuncTable = {}
 
     def visitProg(self, ctx: MiniDecafParser.ProgContext):
-        self.visit(ctx.func())
+        # for child in ctx.children:
+        #     self.visit(child)
+        self.visitChildren(ctx)
         if not self.containsMain:
             raise Exception("main function not found")
 
         return NoType()
 
-    def visitFunc(self, ctx: MiniDecafParser.FuncContext):
-        self.currentFunc = ctx.Ident().getText()
+    def visitDeclaredFunc(self, ctx: MiniDecafParser.DeclaredFuncContext):
+        name = ctx.Ident(0).getText()
+        returnType = self.visit(ctx.ty(0))
+        paramTypes = []
+        for i in range(1, len(ctx.ty())):
+            paramTypes.append(self.visit(ctx.ty(i)))
+        funType = FunType(returnType, paramTypes)
+        # 如果声明过但签名不同 报错
+        if self.declaredFuncTable.get(name) is not None and not self.declaredFuncTable.get(name).equals(funType):
+            raise Exception("declare a function with two different signatures")
+
+        self.declaredFuncTable[name] = funType
+        return NoType()
+
+    def visitDefinedFunc(self, ctx: MiniDecafParser.DefinedFuncContext):
+        self.currentFunc = ctx.Ident(0).getText()
         if self.currentFunc == "main":
             self.containsMain = True
         self.asm.extend(["\t.text\n", "\t.global " + self.currentFunc + "\n", self.currentFunc + ":\n"])
+        if self.definedFuncTable.get(self.currentFunc, None) is not None:
+            raise Exception("define two functions as a same name")
+
+        returnType = self.visit(ctx.ty(0))
+        paramTypes = []
+        for i in range(1, len(ctx.ty())):
+            paramTypes.append(self.visit(ctx.ty(i)))
+        funType = FunType(returnType, paramTypes)
+
+        if self.declaredFuncTable.get(self.currentFunc) is not None and not self.declaredFuncTable.get(
+                self.currentFunc).equals(funType):
+            raise Exception("the number of parameters of the defined function is not the same as declared")
+        # 加入declaredFuncTable和definedFuncTable中
+        self.declaredFuncTable[self.currentFunc] = funType
+        self.definedFuncTable[self.currentFunc] = funType
+
         self.assignStackFrame()
         # 记录当前位置 之后要插入
         backtracePos = len(self.asm)
+        self.localCount = 0
         # 为这个函数体开启一个新的作用域
         self.symbolTable.append({})
 
+        # 将函数的参数作为局部变量取出
+        for i in range(1, len(ctx.Ident())):
+            paraName = ctx.Ident(i).getText()
+            if self.symbolTable[-1].get(paraName, None) is not None:
+                raise Exception("two parameters have the same name")
+            if i < 9:
+                self.localCount += 1
+                # 通过寄存器传参 a0-a7
+                self.asm.append("\tsw a" + str(i - 1) + ", " + str(-4 * i) + "(fp)\n")
+                self.symbolTable[-1][paraName] = Symbol(paraName, -4 * i, funType.paramTypes[i - 1])
+            else:
+                self.symbolTable[-1][paraName] = Symbol(paraName, 4 * (i - 9 + 2), funType.paramTypes[i - 1])
+
+        # 发射函数体
         for blockItem in ctx.blockItem():
             self.visit(blockItem)
         # 关闭作用域
@@ -347,6 +399,27 @@ class MainVisitor(MiniDecafVisitor):
             self.push("t0")
             return IntType()
         else:
+            return self.visit(ctx.postfix())
+
+    def visitPostfix(self, ctx: MiniDecafParser.PostfixContext):
+        if len(ctx.children) > 1:
+            name = ctx.Ident().getText()
+            if self.declaredFuncTable.get(name, None) is None:
+                raise Exception("try calling an undeclared function")
+            funType = self.declaredFuncTable.get(name)
+            if len(funType.paramTypes) != len(ctx.expr()):
+                raise Exception("the number of arguments is not equal to the number of parameters")
+
+            self.asm.append("# prepare arguments\n")
+            for i in range(len(ctx.expr()) - 1, -1, -1):
+                self.visit(ctx.expr(i))
+                if i < 8:
+                    self.pop("a" + str(i))
+            self.asm.append("\tcall " + name + "\n")
+            # 函数返回值在a0中
+            self.push("a0")
+            return IntType()
+        else:
             return self.visit(ctx.primary())
 
     def visitNumPrimary(self, ctx: MiniDecafParser.NumPrimaryContext):
@@ -370,6 +443,9 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitParenthesizedPrimary(self, ctx: MiniDecafParser.ParenthesizedPrimaryContext):
         return self.visit(ctx.expr())
+
+    def visitTy(self, ctx: MiniDecafParser.TyContext):
+        return IntType()
 
     # return loopNo++
     def increaseLoopNo(self):
