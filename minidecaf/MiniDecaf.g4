@@ -1,7 +1,7 @@
 grammar MiniDecaf;
 
 prog:
-	func* EOF;
+	(func | globalDecl)* EOF;
 
 func:
 	ty Ident '(' (ty Ident (',' ty Ident)*)? ')' '{' blockItem* '}'	# definedFunc
@@ -10,6 +10,8 @@ func:
 ty: 'int';
 
 blockItem: localDecl | stmt;
+
+globalDecl: ty Ident ('=' Integer)? ';';
 
 localDecl: ty Ident ('=' expr)? ';';
 

@@ -14,7 +14,7 @@ class MainVisitor(MiniDecafVisitor):
         self.localCount = 0
 
         self.currentFunc = ""
-        # 符号表 栈
+        # 符号表 栈 list[{name:Symbol}]
         self.symbolTable = []
         # 条件语句和条件表达式所用label编号
         self.condNo = 0
@@ -26,32 +26,50 @@ class MainVisitor(MiniDecafVisitor):
         self.declaredFuncTable = {}
         # 定义函数
         self.definedFuncTable = {}
+        # (name)String:Type
+        self.declaredGlobalTable = {}
+        # (name)Stirng:Type
+        self.initializedGlobalTable = {}
 
     def visitProg(self, ctx: MiniDecafParser.ProgContext):
         # for child in ctx.children:
         #     self.visit(child)
+        # visit child
         self.visitChildren(ctx)
+        # 将未初始化的全局变量发送到 bss 段
+        self.asm.insert(0,"\t.bss\n")
+        for globalIdent in self.declaredGlobalTable.keys():
+            if self.initializedGlobalTable.get(globalIdent) is None:
+                self.asm.insert(1, "\t.comm " + globalIdent + ", " +
+                                str(self.declaredGlobalTable.get(globalIdent).getSize()) + ", 4\n")  # 大小为 4，对齐字节数也为 4
+
         if not self.containsMain:
             raise Exception("main function not found")
 
         return NoType()
 
     def visitDeclaredFunc(self, ctx: MiniDecafParser.DeclaredFuncContext):
-        name = ctx.Ident(0).getText()
+        funcName = ctx.Ident(0).getText()
+        if self.declaredGlobalTable.get(funcName) is not None:
+            raise Exception("same name for a global v and a func")
+
         returnType = self.visit(ctx.ty(0))
         paramTypes = []
         for i in range(1, len(ctx.ty())):
             paramTypes.append(self.visit(ctx.ty(i)))
         funType = FunType(returnType, paramTypes)
         # 如果声明过但签名不同 报错
-        if self.declaredFuncTable.get(name) is not None and not self.declaredFuncTable.get(name).equals(funType):
+        if self.declaredFuncTable.get(funcName) is not None and not self.declaredFuncTable.get(funcName).equals(
+                funType):
             raise Exception("declare a function with two different signatures")
 
-        self.declaredFuncTable[name] = funType
+        self.declaredFuncTable[funcName] = funType
         return NoType()
 
     def visitDefinedFunc(self, ctx: MiniDecafParser.DefinedFuncContext):
         self.currentFunc = ctx.Ident(0).getText()
+        if self.declaredGlobalTable.get(self.currentFunc) is not None:
+            raise Exception("same name for a global v and a func")
         if self.currentFunc == "main":
             self.containsMain = True
         self.asm.extend(["\t.text\n", "\t.global " + self.currentFunc + "\n", self.currentFunc + ":\n"])
@@ -82,7 +100,7 @@ class MainVisitor(MiniDecafVisitor):
         for i in range(1, len(ctx.Ident())):
             paraName = ctx.Ident(i).getText()
             if self.symbolTable[-1].get(paraName, None) is not None:
-                raise Exception("two parameters have the same name")
+                raise Exception("two param have the same name")
             if i < 9:
                 self.localCount += 1
                 # 通过寄存器传参 a0-a7
@@ -108,6 +126,28 @@ class MainVisitor(MiniDecafVisitor):
 
         return NoType()
 
+    def visitGlobalDecl(self, ctx: MiniDecafParser.GlobalDeclContext):
+        # 全局变量可以多次声明，但只能被初始化一次
+        name = ctx.Ident().getText()
+        if self.declaredFuncTable.get(name) is not None:
+            raise Exception("same name for a global v and a func")
+
+        ty = self.visit(ctx.ty())
+        if self.declaredGlobalTable.get(name) is not None and not self.declaredGlobalTable.get(name).equals(ty):
+            raise Exception("global variables with different type")
+        self.declaredGlobalTable[name] = ty
+
+        if ctx.Integer() is not None:
+            if self.initializedGlobalTable.get(name) is not None:
+                raise Exception("initializing a global variable twice")
+            self.initializedGlobalTable[name] = ty
+            self.asm.append("\t.data\n")
+            self.asm.append("\t.align 4\n")
+            self.asm.append(name + ":\n")
+            self.asm.append("\t.word " + ctx.Integer().getText() + "\n")
+
+        return NoType()
+
     def visitLocalDecl(self, ctx: MiniDecafParser.LocalDeclContext):
         name = ctx.Ident().getText()
         # 已经声明过了
@@ -117,9 +157,8 @@ class MainVisitor(MiniDecafVisitor):
         self.localCount += 1
         self.symbolTable[-1][name] = Symbol(name, -4 * self.localCount, IntType())
         # 初始化
-        expr = ctx.expr()
-        if expr is not None:
-            self.visit(expr)
+        if ctx.expr() is not None:
+            self.visit(ctx.expr())
             self.pop("t0")
             self.asm.append("# assignment for " + name + "\n")
             self.asm.append("\tsw t0, " + str(-4 * self.localCount) + "(fp)\n")
@@ -265,10 +304,18 @@ class MainVisitor(MiniDecafVisitor):
         if len(ctx.children) > 1:
             name = ctx.Ident().getText()
             symbol = self.lookupSymbol(name)
-            if symbol is None:
-                raise Exception("variable {} is not defined".format(name))
-            else:
-                self.visit(ctx.expr())
+            self.visit(ctx.expr())
+            if symbol is None:  # 全局 or 不存在
+                if self.declaredGlobalTable.get(name) is not None:
+                    self.pop("t0")
+                    self.asm.append("# assign global variable\n")
+                    self.asm.append("\tla t1, " + name + "\n")
+                    self.asm.append("\tsw t0, 0(t1)")
+                    self.push("t0")
+                    return self.declaredGlobalTable.get(name)
+                else:
+                    raise Exception("use variable that is not defined")
+            else: # 局部变量
                 self.pop("t0")
                 self.asm.extend(["# assignment for " + name + "\n", "\tsw t0, " + str(symbol.offset) + "(fp)\n"])
                 # 如果是赋值语句返回左值，对应 exprStmt 中的pop
@@ -434,9 +481,16 @@ class MainVisitor(MiniDecafVisitor):
     def visitIdentPrimary(self, ctx: MiniDecafParser.IdentPrimaryContext):
         name = ctx.Ident().getText()
         symbol = self.lookupSymbol(name)
-        if symbol is None:
-            raise Exception("variable {} is not defined".format(name))
-        else:
+        if symbol is None: # 全局 or 不存在
+            if self.declaredGlobalTable.get(name) is not None:
+                self.asm.append("# read global variable\n")
+                self.asm.append("\tla t1, " + name + "\n")
+                self.asm.append("\tlw t0, 0(t1)")
+                self.push("t0")
+                return self.declaredGlobalTable.get(name)
+            else:
+                raise Exception("variable {} is not defined".format(name))
+        else: # 局部
             self.asm.extend(["# read variable " + name + "\n", "\tlw t0, " + str(symbol.offset) + "(fp)\n"])
             self.push("t0")
             return symbol.type
