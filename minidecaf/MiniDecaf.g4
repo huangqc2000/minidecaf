@@ -11,9 +11,15 @@ ty: 'int' '*'*;
 
 blockItem: localDecl | stmt;
 
-globalDecl: ty Ident ('=' Integer)? ';';
+globalDecl:
+	ty Ident ('=' Integer)? ';'		# globalIntOrPointerDecl
+	| ty Ident ('[' Integer ']')+ ';'	# globalArrayDecl
+	;
 
-localDecl: ty Ident ('=' expr)? ';';
+localDecl:
+	ty Ident ('=' expr)? ';'		# localIntOrPointerDecl
+	| ty Ident ('[' Integer ']')+ ';'	# localArrayDecl
+	;
 
 stmt:
 	expr? ';' # exprStmt
@@ -48,7 +54,12 @@ unary:
 	| '(' ty ')' unary # castUnary
 	| postfix # postfixUnary;
 
-postfix: Ident '(' (expr (',' expr)*)? ')' | primary;
+postfix:
+	Ident '(' (expr (',' expr)*)? ')' # callPostfix
+	| postfix '[' expr ']' # subscriptPostfix
+	| primary # primaryPostfix
+	;
+
 
 primary:
 	Integer # numPrimary

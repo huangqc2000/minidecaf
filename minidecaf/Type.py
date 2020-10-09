@@ -39,13 +39,13 @@ class NoType(AbstractType):
         return isinstance(ty, NoType)
 
     def getSize(self) -> int:
-        raise Exception("Error: trying to get the size of NoType.")
+        raise Exception("trying to get the size of NoType.")
 
     def referenced(self):
-        raise Exception("Error: trying to referencing of NoType")
+        raise Exception("trying to referencing of NoType")
 
     def dereferenced(self):
-        raise Exception("Error: trying to dereferencing of NoType")
+        raise Exception("trying to dereferencing of NoType")
 
     def valueCast(self, targetValueCat):
         return self
@@ -66,10 +66,10 @@ class IntType(AbstractType):
         if self.valueCat == ValueCat.Lvalue:
             return PointerType(1)
         else:
-            raise Exception("Error: trying to referencing a rvalue of int")
+            raise Exception("trying to referencing a rvalue of int")
 
     def dereferenced(self):
-        raise Exception("Error: trying to dereferencing a int")
+        raise Exception("trying to dereferencing a int")
 
     def valueCast(self, targetValueCat):
         return IntType(targetValueCat)
@@ -91,7 +91,7 @@ class PointerType(AbstractType):
         if self.valueCat == ValueCat.Lvalue:
             return PointerType(self.starNum + 1)
         else:
-            raise Exception("Error: trying to referencing a rvalue of pointer")
+            raise Exception("trying to referencing a rvalue of pointer")
 
     def dereferenced(self):
         if self.starNum > 1:
@@ -101,3 +101,29 @@ class PointerType(AbstractType):
 
     def valueCast(self, targetValueCat):
         return PointerType(self.starNum, targetValueCat)
+
+
+class ArrayType(AbstractType):
+    def __init__(self, baseType, length):
+        super().__init__("ArrayType")
+        self.baseType = baseType
+        self.length = length
+        self.size = length * self.baseType.getSize()
+
+    def equals(self, ty) -> bool:
+        return isinstance(ty, ArrayType) and self.size == ty.getSize() and self.baseType.equals(ty.baseType)
+
+    def referenced(self):
+        raise Exception("trying to referencing a array")
+
+    def dereferenced(self):
+        raise Exception("trying to dereferencing a array")
+
+    def valueCast(self, targetValueCat):
+        if targetValueCat == ValueCat.Lvalue:
+            raise Exception("array must be a Rvalue")
+        else:
+            return ArrayType(self.baseType, self.length)
+
+    def getSize(self) -> int:
+        return self.size

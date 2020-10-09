@@ -129,7 +129,7 @@ class MainVisitor(MiniDecafVisitor):
 
         return NoType()
 
-    def visitGlobalDecl(self, ctx: MiniDecafParser.GlobalDeclContext):
+    def visitGlobalIntOrPointerDecl(self, ctx: MiniDecafParser.GlobalIntOrPointerDeclContext):
         # 全局变量可以多次声明，但只能被初始化一次
         name = ctx.Ident().getText()
         if self.declaredFuncTable.get(name) is not None:
@@ -152,7 +152,24 @@ class MainVisitor(MiniDecafVisitor):
 
         return NoType()
 
-    def visitLocalDecl(self, ctx: MiniDecafParser.LocalDeclContext):
+    def visitGlobalArrayDecl(self, ctx: MiniDecafParser.GlobalArrayDeclContext):
+        name = ctx.Ident().getText()
+        if self.declaredFuncTable.get(name) is not None:
+            raise Exception("same name for a global array and a func")
+        types = []
+        types.append(self.visit(ctx.ty()).valueCast(ValueCat.Lvalue))
+        for i in range(len(ctx.Integer()) - 1, -1, -1):
+            dim = int(ctx.Integer(i).getText())
+            if dim > INT_MAX or dim <= 0:
+                raise Exception(f"wrong dimension {i - 1} of array")
+            types.insert(0, ArrayType(types[0], dim))
+        ty = types[0]
+        if self.declaredGlobalTable.get(name) is not None and not self.declaredGlobalTable.get(name).equals(ty):
+            raise Exception("array declared differently with global declare")
+        self.declaredGlobalTable[name] = ty
+        return NoType()
+
+    def visitLocalIntOrPointerDecl(self, ctx: MiniDecafParser.LocalIntOrPointerDeclContext):
         name = ctx.Ident().getText()
         # 已经声明过了
         if self.symbolTable[-1].__contains__(name):
@@ -172,6 +189,25 @@ class MainVisitor(MiniDecafVisitor):
             self.asm.append("\tsw t0, " + str(-4 * self.localCount) + "(fp)\n")
 
         return NoType()
+
+    def visitLocalArrayDecl(self, ctx: MiniDecafParser.LocalArrayDeclContext):
+        name = ctx.Ident().getText()
+        # 已经声明过了
+        if self.symbolTable[-1].__contains__(name):
+            raise Exception("Repeated statement for" + name)
+        types = []
+        types.append(self.visit(ctx.ty()).valueCast(ValueCat.Lvalue))
+        for i in range(len(ctx.Integer())-1, -1, -1):
+            dim = int(ctx.Integer(i).getText())
+            if dim <= 0 or dim > INT_MAX:
+                raise Exception(f"wrong dimension {i - 1} of array")
+            types.insert(0, ArrayType(types[0], dim))
+        # ???
+        # assert isinstance(types[0], ArrayType)
+        ty = types[0]
+        # 数组相当于多个变量
+        self.localCount += int(ty.getSize() / 4)
+        self.symbolTable[-1][name] = Symbol(name, -4 * self.localCount, ty)
 
     def visitExprStmt(self, ctx: MiniDecafParser.ExprStmtContext):
         expr = ctx.expr()
@@ -352,8 +388,10 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitLor(self, ctx: MiniDecafParser.LorContext):
         if len(ctx.children) > 1:
-            self.checkType(self.visit(ctx.lor(0)), "IntType")
-            self.checkType(self.visit(ctx.lor(1)), "IntType")
+            leftType = self.checkType(self.visit(ctx.lor(0)), "IntType")
+            rightType = self.checkType(self.visit(ctx.lor(1)), "IntType")
+            if isinstance(leftType, ArrayType) or isinstance(rightType, ArrayType):
+                raise Exception("array cannot or")
             self.pop("t1")
             self.pop("t0")
             self.asm.append(RulesToAsm["||"])
@@ -364,8 +402,10 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitLand(self, ctx: MiniDecafParser.LandContext):
         if len(ctx.children) > 1:
-            self.checkType(self.visit(ctx.land(0)), "IntType")
-            self.checkType(self.visit(ctx.land(1)), "IntType")
+            leftType = self.checkType(self.visit(ctx.land(0)), "IntType")
+            rightType = self.checkType(self.visit(ctx.land(1)), "IntType")
+            if isinstance(leftType, ArrayType) or isinstance(rightType, ArrayType):
+                raise Exception("array cannot and")
             self.pop("t1")
             self.pop("t0")
             self.asm.append(RulesToAsm["&&"])
@@ -380,6 +420,9 @@ class MainVisitor(MiniDecafVisitor):
             rightType = self.RValueCast(self.visit(ctx.equ(1)))
             if not leftType.equals(rightType):
                 raise Exception("type between equ must be the same")
+            # ???
+            if isinstance(leftType, ArrayType) or isinstance(rightType, ArrayType):
+                raise Exception("array cannot equ")
             self.pop("t1")
             self.pop("t0")
             op = ctx.children[1].getText()
@@ -394,8 +437,10 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitRel(self, ctx: MiniDecafParser.RelContext):
         if len(ctx.children) > 1:
-            self.checkType(self.visit(ctx.rel(0)), "IntType")
-            self.checkType(self.visit(ctx.rel(1)), "IntType")
+            leftType = self.checkType(self.visit(ctx.rel(0)), "IntType")
+            rightType = self.checkType(self.visit(ctx.rel(1)), "IntType")
+            if isinstance(leftType, ArrayType) or isinstance(rightType, ArrayType):
+                raise Exception("array cannot rel")
             self.pop("t1")
             self.pop("t0")
             op = ctx.children[1].getText()
@@ -412,6 +457,8 @@ class MainVisitor(MiniDecafVisitor):
         if len(ctx.children) > 1:
             leftType = self.RValueCast(self.visit(ctx.add(0)))
             rightType = self.RValueCast(self.visit(ctx.add(1)))
+            if isinstance(leftType, ArrayType) or isinstance(rightType, ArrayType):
+                raise Exception("array cannot add")
             op = ctx.children[1].getText()
             if op == "+":
                 self.pop("t1")
@@ -464,8 +511,10 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitMul(self, ctx: MiniDecafParser.MulContext):
         if len(ctx.children) > 1:
-            self.checkType(self.visit(ctx.mul(0)), "IntType")
-            self.checkType(self.visit(ctx.mul(1)), "IntType")
+            leftType = self.checkType(self.visit(ctx.mul(0)), "IntType")
+            rightType = self.checkType(self.visit(ctx.mul(1)), "IntType")
+            if isinstance(leftType, ArrayType) or isinstance(rightType, ArrayType):
+                raise Exception("array cannot mul")
             self.pop("t1")
             self.pop("t0")
             op = ctx.children[1].getText()
@@ -505,33 +554,55 @@ class MainVisitor(MiniDecafVisitor):
         dstType = self.visit(ctx.ty())
         return dstType.valueCast(srcType.valueCat)
 
-    # ???
     def visitPostfixUnary(self, ctx: MiniDecafParser.PostfixUnaryContext):
         return self.visit(ctx.postfix())
 
-    def visitPostfix(self, ctx: MiniDecafParser.PostfixContext):
-        if len(ctx.children) > 1:
-            name = ctx.Ident().getText()
-            if self.declaredFuncTable.get(name, None) is None:
-                raise Exception("try calling an undeclared function")
-            funType = self.declaredFuncTable.get(name)
-            if len(funType.paramTypes) != len(ctx.expr()):
-                raise Exception("the number of arguments is not equal to the number of parameters")
+    def visitCallPostfix(self, ctx: MiniDecafParser.CallPostfixContext):
+        name = ctx.Ident().getText()
+        if self.declaredFuncTable.get(name, None) is None:
+            raise Exception("try calling an undeclared function")
+        funType = self.declaredFuncTable.get(name)
+        if len(funType.paramTypes) != len(ctx.expr()):
+            raise Exception("the number of arguments is not equal to the number of parameters")
+        self.asm.append("# prepare arguments\n")
+        for i in range(len(ctx.expr()) - 1, -1, -1):
+            ty = self.RValueCast(self.visit(ctx.expr(i)))
+            if not ty.equals(funType.paramTypes[i]):
+                raise Exception(
+                    f"the type of argument {i} is different from the type of parameter {i} of function {name}")
+            if i < 8:
+                self.pop("a" + str(i))
+        self.asm.append("\tcall " + name + "\n")
+        # 函数返回值在a0中
+        self.push("a0")
+        return funType.returnType
 
-            self.asm.append("# prepare arguments\n")
-            for i in range(len(ctx.expr()) - 1, -1, -1):
-                ty = self.RValueCast(self.visit(ctx.expr(i)))
-                if not ty.equals(funType.paramTypes[i]):
-                    raise Exception(
-                        f"the type of argument {i} is different from the type of parameter {i} of function {name}")
-                if i < 8:
-                    self.pop("a" + str(i))
-            self.asm.append("\tcall " + name + "\n")
-            # 函数返回值在a0中
-            self.push("a0")
-            return funType.returnType
+    def visitSubscriptPostfix(self, ctx: MiniDecafParser.SubscriptPostfixContext):
+        postfixType = self.RValueCast(self.visit(ctx.postfix()))
+        self.checkType(self.visit(ctx.expr()), "IntType")
+        self.pop("t1")
+        self.pop("t0")
+        if isinstance(postfixType, PointerType):
+            self.asm.append(("# subscript to a pointer\n"
+                             "\tslli t1, t1, 2\n"
+                             "\tadd t0, t0, t1\n"
+                             ))
+            self.push("t0")
+            return postfixType.dereferenced()
+        elif isinstance(postfixType, ArrayType):
+            baseType = postfixType.baseType
+            self.asm.append(("# subscript to an array\n"
+                             f"\tli t2, {baseType.getSize()}\n"
+                             "\tmul t1, t1, t2\n"
+                             "\tadd t0, t0, t1\n"
+                             ))
+            self.push("t0")
+            return baseType
         else:
-            return self.visit(ctx.primary())
+            raise Exception(f"the subscript could not apply to a {postfixType.name}")
+
+    def visitPrimaryPostfix(self, ctx: MiniDecafParser.PrimaryPostfixContext):
+        return self.visit(ctx.primary())
 
     def visitNumPrimary(self, ctx: MiniDecafParser.NumPrimaryContext):
         if int(ctx.Integer().getText()) > INT_MAX:
