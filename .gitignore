@@ -3,8 +3,8 @@ __pycache__
 i.c
 o.s
 a.out
-/generated
-/.antlr
-.vscode
+/minidecaf/generated/
+/minidecaf/.antlr/
+.vscode/
 *.xml
 *.iml

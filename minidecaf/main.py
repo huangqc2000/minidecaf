@@ -29,5 +29,5 @@ def main():
     visitor.visit(tree)
     asm = "".join(visitor.asm)
     print(asm)
-    # with open(args.outputfile, 'w') as fout:
-    #     fout.write(asm)
+    with open(args.outputfile, 'w') as fout:
+        fout.write(asm)

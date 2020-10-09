@@ -7,7 +7,7 @@ func:
 	ty Ident '(' (ty Ident (',' ty Ident)*)? ')' '{' blockItem* '}'	# definedFunc
 	| ty Ident '(' (ty Ident (',' ty Ident)*)? ')' ';'				# declaredFunc;
 
-ty: 'int';
+ty: 'int' '*'*;
 
 blockItem: localDecl | stmt;
 
@@ -27,7 +27,7 @@ stmt:
 	| 'continue' ';' # continueStmt
 	;
 
-expr: Ident '=' expr | ternary;
+expr: unary '=' expr | ternary;
 
 ternary: lor '?' expr ':' ternary | lor;
 
@@ -43,7 +43,10 @@ add: add ('+' | '-') add | mul;
 
 mul: mul ('*' | '/' | '%') mul | unary;
 
-unary: ('-' | '!' | '~') unary | postfix;
+unary:
+	('-' | '~' | '!' | '&' | '*') unary	# opUnary
+	| '(' ty ')' unary # castUnary
+	| postfix # postfixUnary;
 
 postfix: Ident '(' (expr (',' expr)*)? ')' | primary;
 

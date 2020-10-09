@@ -37,7 +37,7 @@ class MainVisitor(MiniDecafVisitor):
         # visit child
         self.visitChildren(ctx)
         # 将未初始化的全局变量发送到 bss 段
-        self.asm.insert(0,"\t.bss\n")
+        self.asm.insert(0, "\t.bss\n")
         for globalIdent in self.declaredGlobalTable.keys():
             if self.initializedGlobalTable.get(globalIdent) is None:
                 self.asm.insert(1, "\t.comm " + globalIdent + ", " +
@@ -84,7 +84,7 @@ class MainVisitor(MiniDecafVisitor):
 
         if self.declaredFuncTable.get(self.currentFunc) is not None and not self.declaredFuncTable.get(
                 self.currentFunc).equals(funType):
-            raise Exception("the number of parameters of the defined function is not the same as declared")
+            raise Exception("the signature of the defined function is not the same as declared")
         # 加入declaredFuncTable和definedFuncTable中
         self.declaredFuncTable[self.currentFunc] = funType
         self.definedFuncTable[self.currentFunc] = funType
@@ -105,9 +105,12 @@ class MainVisitor(MiniDecafVisitor):
                 self.localCount += 1
                 # 通过寄存器传参 a0-a7
                 self.asm.append("\tsw a" + str(i - 1) + ", " + str(-4 * i) + "(fp)\n")
-                self.symbolTable[-1][paraName] = Symbol(paraName, -4 * i, funType.paramTypes[i - 1])
+                # 参数转化为左值
+                self.symbolTable[-1][paraName] = Symbol(paraName, -4 * i,
+                                                        funType.paramTypes[i - 1].valueCast(ValueCat.Lvalue))
             else:
-                self.symbolTable[-1][paraName] = Symbol(paraName, 4 * (i - 9 + 2), funType.paramTypes[i - 1])
+                self.symbolTable[-1][paraName] = Symbol(paraName, 4 * (i - 9 + 2),
+                                                        funType.paramTypes[i - 1].valueCast(ValueCat.Lvalue))
 
         # 发射函数体
         for blockItem in ctx.blockItem():
@@ -135,12 +138,13 @@ class MainVisitor(MiniDecafVisitor):
         ty = self.visit(ctx.ty())
         if self.declaredGlobalTable.get(name) is not None and not self.declaredGlobalTable.get(name).equals(ty):
             raise Exception("global variables with different type")
-        self.declaredGlobalTable[name] = ty
+
+        self.declaredGlobalTable[name] = ty.valueCast(ValueCat.Lvalue)
 
         if ctx.Integer() is not None:
             if self.initializedGlobalTable.get(name) is not None:
                 raise Exception("initializing a global variable twice")
-            self.initializedGlobalTable[name] = ty
+            self.initializedGlobalTable[name] = ty.valueCast(ValueCat.Lvalue)
             self.asm.append("\t.data\n")
             self.asm.append("\t.align 4\n")
             self.asm.append(name + ":\n")
@@ -154,13 +158,17 @@ class MainVisitor(MiniDecafVisitor):
         if self.symbolTable[-1].__contains__(name):
             raise Exception("Repeated statement for" + name)
         # 加入符号表
+        ty = self.visit(ctx.ty())
         self.localCount += 1
-        self.symbolTable[-1][name] = Symbol(name, -4 * self.localCount, IntType())
+        self.symbolTable[-1][name] = Symbol(name, -4 * self.localCount, ty.valueCast(ValueCat.Lvalue))
         # 初始化
         if ctx.expr() is not None:
-            self.visit(ctx.expr())
+            # self.visit(ctx.expr())
+            exprType = self.RValueCast(self.visit(ctx.expr()))
+            if not exprType.equals(ty):
+                raise Exception(f"initialize value of type  {exprType.name} to some variable of type {ty.name}")
             self.pop("t0")
-            self.asm.append("# assignment for " + name + "\n")
+            self.asm.append("# assignment for local variable " + name + "\n")
             self.asm.append("\tsw t0, " + str(-4 * self.localCount) + "(fp)\n")
 
         return NoType()
@@ -176,7 +184,10 @@ class MainVisitor(MiniDecafVisitor):
         return NoType()
 
     def visitReturnStmt(self, ctx: MiniDecafParser.ReturnStmtContext):
-        self.visit(ctx.expr())
+        returnType = self.RValueCast(self.visit(ctx.expr()))
+        expectedType = self.definedFuncTable.get(self.currentFunc).returnType
+        if not expectedType.equals(returnType):
+            raise Exception(f"expect return type {expectedType.name}, found {returnType.name}")
         # 函数返回 返回值在栈顶
         self.asm.append("\tj .exit." + self.currentFunc + "\n")
         return NoType()
@@ -186,7 +197,7 @@ class MainVisitor(MiniDecafVisitor):
         self.condNo += 1
         self.asm.append("# # if\n")  # 多一个#
         # 获得表达式的值
-        self.visit(ctx.expr())
+        self.checkType(self.visit(ctx.expr()), "IntType")
         self.pop("t0")
         self.asm.append("\tbeqz t0, .else" + currentCondNo + "\n")
         self.visit(ctx.stmt(0))
@@ -209,7 +220,7 @@ class MainVisitor(MiniDecafVisitor):
         self.asm.append("# while\n")
         self.asm.append(".beforeLoop" + currentLoopNo + ":\n")
         self.asm.append(".continueLoop" + currentLoopNo + ":\n")
-        self.visit(ctx.expr())
+        self.checkType(self.visit(ctx.expr()), "IntType")
         self.pop("t0")
         self.asm.append("\tbeqz t0, .afterLoop" + currentLoopNo + "\n")
         # 访问循环体
@@ -248,7 +259,7 @@ class MainVisitor(MiniDecafVisitor):
 
         self.asm.append(".beforeLoop" + currentLoopNo + ":\n")
         if condExpr is not None:
-            self.visit(condExpr)
+            self.checkType(self.visit(condExpr), "IntType")
             self.asm.append("\tlw t1, 0(sp)\n")
             self.asm.append("\taddi sp, sp, 4\n")
             self.asm.append("\tbeqz t1, .afterLoop" + currentLoopNo + "\n")
@@ -281,7 +292,7 @@ class MainVisitor(MiniDecafVisitor):
         self.loopNos.pop()
 
         self.asm.append(".continueLoop" + currentLoopNo + ":\n")
-        self.visit(ctx.expr())
+        self.checkType(self.visit(ctx.expr()), "IntType")
         self.pop("t0")
         self.asm.append("\tbnez t0, .beforeLoop" + currentLoopNo + "\n")
         self.asm.append(".afterLoop" + currentLoopNo + ":\n")
@@ -302,25 +313,21 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitExpr(self, ctx: MiniDecafParser.ExprContext):
         if len(ctx.children) > 1:
-            name = ctx.Ident().getText()
-            symbol = self.lookupSymbol(name)
-            self.visit(ctx.expr())
-            if symbol is None:  # 全局 or 不存在
-                if self.declaredGlobalTable.get(name) is not None:
-                    self.pop("t0")
-                    self.asm.append("# assign global variable\n")
-                    self.asm.append("\tla t1, " + name + "\n")
-                    self.asm.append("\tsw t0, 0(t1)")
-                    self.push("t0")
-                    return self.declaredGlobalTable.get(name)
-                else:
-                    raise Exception("use variable that is not defined")
-            else: # 局部变量
-                self.pop("t0")
-                self.asm.extend(["# assignment for " + name + "\n", "\tsw t0, " + str(symbol.offset) + "(fp)\n"])
-                # 如果是赋值语句返回左值，对应 exprStmt 中的pop
-                self.push("t0")
-                return symbol.type
+            unaryType = self.visit(ctx.unary())
+            if unaryType.valueCat == ValueCat.Rvalue:
+                raise Exception("expect lvalue, but found rvalue")
+            # ???
+            # unaryType = unaryType.valueCast(ValueCat.Lvalue)
+            exprType = self.RValueCast(self.visit(ctx.expr()))
+            if not exprType.equals(unaryType.valueCast(ValueCat.Rvalue)):
+                raise Exception("assign value of type is not the same as the variable type")
+            self.pop("t1")
+            self.pop("t0")
+            self.asm.append(("# assign\n"
+                             "\tsw t1, 0(t0)\n"
+                             ))
+            self.push("t0")
+            return unaryType
         else:
             return self.visit(ctx.ternary())
 
@@ -329,22 +336,24 @@ class MainVisitor(MiniDecafVisitor):
             currentCondNo = str(self.condNo)
             self.condNo += 1
             self.asm.append("# ternary conditional\n")
-            self.visit(ctx.lor())
+            self.checkType(self.visit(ctx.lor()), "IntType")
             self.pop("t0")
             self.asm.append("\tbeqz t0, .else" + currentCondNo + "\n")
-            self.visit(ctx.expr())
+            thenType = self.RValueCast(self.visit(ctx.expr()))
             self.asm.append("\tj .afterCond" + currentCondNo + "\n")
             self.asm.append(".else" + currentCondNo + ":\n")
-            self.visit(ctx.ternary())
+            elseType = self.RValueCast(self.visit(ctx.ternary()))
             self.asm.append(".afterCond" + currentCondNo + ":\n")
-            return IntType()
+            if not thenType.equals(elseType):
+                raise Exception("a ternary has to different return types")
+            return thenType
         else:
             return self.visit(ctx.lor())
 
     def visitLor(self, ctx: MiniDecafParser.LorContext):
         if len(ctx.children) > 1:
-            self.visit(ctx.lor(0))
-            self.visit(ctx.lor(1))
+            self.checkType(self.visit(ctx.lor(0)), "IntType")
+            self.checkType(self.visit(ctx.lor(1)), "IntType")
             self.pop("t1")
             self.pop("t0")
             self.asm.append(RulesToAsm["||"])
@@ -355,8 +364,8 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitLand(self, ctx: MiniDecafParser.LandContext):
         if len(ctx.children) > 1:
-            self.visit(ctx.land(0))
-            self.visit(ctx.land(1))
+            self.checkType(self.visit(ctx.land(0)), "IntType")
+            self.checkType(self.visit(ctx.land(1)), "IntType")
             self.pop("t1")
             self.pop("t0")
             self.asm.append(RulesToAsm["&&"])
@@ -367,8 +376,10 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitEqu(self, ctx: MiniDecafParser.EquContext):
         if len(ctx.children) > 1:
-            self.visit(ctx.equ(0))
-            self.visit(ctx.equ(1))
+            leftType = self.RValueCast(self.visit(ctx.equ(0)))
+            rightType = self.RValueCast(self.visit(ctx.equ(1)))
+            if not leftType.equals(rightType):
+                raise Exception("type between equ must be the same")
             self.pop("t1")
             self.pop("t0")
             op = ctx.children[1].getText()
@@ -383,8 +394,8 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitRel(self, ctx: MiniDecafParser.RelContext):
         if len(ctx.children) > 1:
-            self.visit(ctx.rel(0))
-            self.visit(ctx.rel(1))
+            self.checkType(self.visit(ctx.rel(0)), "IntType")
+            self.checkType(self.visit(ctx.rel(1)), "IntType")
             self.pop("t1")
             self.pop("t0")
             op = ctx.children[1].getText()
@@ -399,24 +410,62 @@ class MainVisitor(MiniDecafVisitor):
 
     def visitAdd(self, ctx: MiniDecafParser.AddContext):
         if len(ctx.children) > 1:
-            self.visit(ctx.add(0))
-            self.visit(ctx.add(1))
-            self.pop("t1")
-            self.pop("t0")
+            leftType = self.RValueCast(self.visit(ctx.add(0)))
+            rightType = self.RValueCast(self.visit(ctx.add(1)))
             op = ctx.children[1].getText()
-            tmpAsm = RulesToAsm.get(op, None)
-            if tmpAsm is None:
-                raise Exception("add rules error")
-            self.asm.append(tmpAsm)
-            self.push("t0")
-            return IntType()
+            if op == "+":
+                self.pop("t1")
+                self.pop("t0")
+                if isinstance(leftType, IntType) and isinstance(rightType, IntType):
+                    self.asm += RulesToAsm.get(op, None)
+                    self.push("t0")
+                    return IntType()
+                elif isinstance(leftType, PointerType) and isinstance(rightType, IntType):
+                    self.asm.append(("# pointer + int\n"
+                                     "\tslli t1, t1, 2\n"
+                                     "\tadd t0, t0, t1\n"
+                                     ))
+                    self.push("t0")
+                    return leftType
+                elif isinstance(leftType, IntType) and isinstance(rightType, PointerType):
+                    self.asm.append(("# int + pointer\n"
+                                     "\tslli t0, t0, 2\n"
+                                     "\tadd t0, t0, t1\n"
+                                     ))
+                    self.push("t0")
+                    return rightType
+                else:
+                    raise Exception("pointer can not add pointer")
+            else:
+                self.pop("t1")
+                self.pop("t0")
+                if isinstance(leftType, IntType) and isinstance(rightType, IntType):
+                    self.asm += RulesToAsm.get(op, None)
+                    self.push("t0")
+                    return IntType()
+                elif isinstance(leftType, PointerType) and isinstance(rightType, IntType):
+                    self.asm.append(("# pointer - int\n"
+                                     "\tslli t1, t1, 2\n"
+                                     "\tsub t0, t0, t1\n"
+                                     ))
+                    self.push("t0")
+                    return leftType
+                elif isinstance(leftType, PointerType) and rightType.equals(leftType):
+                    self.asm.append(("# pointer - pointer\n"
+                                     "\tsub t0, t0, t1\n"
+                                     "\tsrai t0, t0, 2\n"
+                                     ))
+                    self.push("t0")
+                    return IntType()
+                else:
+                    raise Exception("pointer can not add pointer")
         else:
             return self.visit(ctx.mul())
 
     def visitMul(self, ctx: MiniDecafParser.MulContext):
         if len(ctx.children) > 1:
-            self.visit(ctx.mul(0))
-            self.visit(ctx.mul(1))
+            self.checkType(self.visit(ctx.mul(0)), "IntType")
+            self.checkType(self.visit(ctx.mul(1)), "IntType")
             self.pop("t1")
             self.pop("t0")
             op = ctx.children[1].getText()
@@ -429,12 +478,17 @@ class MainVisitor(MiniDecafVisitor):
         else:
             return self.visit(ctx.unary())
 
-    def visitUnary(self, ctx: MiniDecafParser.UnaryContext):
-        if len(ctx.children) > 1:
-            self.visit(ctx.unary())
-            op = ctx.children[0].getText()
-            # 特判一下 - 因为与减符号相同无法使用字典
+    def visitOpUnary(self, ctx: MiniDecafParser.OpUnaryContext):
+        ty = self.visit(ctx.unary())
+        op = ctx.children[0].getText()
+        if op == "*":
+            return self.RValueCast(ty).dereferenced()
+        elif op == "&":
+            return ty.referenced()
+        else:
+            self.checkType(ty, "IntType")
             self.pop("t0")
+            # 特判一下 - 因为与减符号相同无法使用字典
             if op == "-":
                 self.asm.append("# - int\n")
                 self.asm.append("\tneg t0, t0\n")
@@ -445,8 +499,15 @@ class MainVisitor(MiniDecafVisitor):
                 self.asm.append(tmpAsm)
             self.push("t0")
             return IntType()
-        else:
-            return self.visit(ctx.postfix())
+
+    def visitCastUnary(self, ctx: MiniDecafParser.CastUnaryContext):
+        srcType = self.visit(ctx.unary())
+        dstType = self.visit(ctx.ty())
+        return dstType.valueCast(srcType.valueCat)
+
+    # ???
+    def visitPostfixUnary(self, ctx: MiniDecafParser.PostfixUnaryContext):
+        return self.visit(ctx.postfix())
 
     def visitPostfix(self, ctx: MiniDecafParser.PostfixContext):
         if len(ctx.children) > 1:
@@ -459,13 +520,16 @@ class MainVisitor(MiniDecafVisitor):
 
             self.asm.append("# prepare arguments\n")
             for i in range(len(ctx.expr()) - 1, -1, -1):
-                self.visit(ctx.expr(i))
+                ty = self.RValueCast(self.visit(ctx.expr(i)))
+                if not ty.equals(funType.paramTypes[i]):
+                    raise Exception(
+                        f"the type of argument {i} is different from the type of parameter {i} of function {name}")
                 if i < 8:
                     self.pop("a" + str(i))
             self.asm.append("\tcall " + name + "\n")
             # 函数返回值在a0中
             self.push("a0")
-            return IntType()
+            return funType.returnType
         else:
             return self.visit(ctx.primary())
 
@@ -481,17 +545,17 @@ class MainVisitor(MiniDecafVisitor):
     def visitIdentPrimary(self, ctx: MiniDecafParser.IdentPrimaryContext):
         name = ctx.Ident().getText()
         symbol = self.lookupSymbol(name)
-        if symbol is None: # 全局 or 不存在
+        if symbol is None:  # 全局 or 不存在
             if self.declaredGlobalTable.get(name) is not None:
-                self.asm.append("# read global variable\n")
-                self.asm.append("\tla t1, " + name + "\n")
-                self.asm.append("\tlw t0, 0(t1)")
+                self.asm.append(f"# read global variable {name}\n")
+                self.asm.append("\tla t0, " + name + "\n")
                 self.push("t0")
                 return self.declaredGlobalTable.get(name)
             else:
                 raise Exception("variable {} is not defined".format(name))
-        else: # 局部
-            self.asm.extend(["# read variable " + name + "\n", "\tlw t0, " + str(symbol.offset) + "(fp)\n"])
+        else:  # 局部
+            self.asm.append((f"# read variable {name} as lvalue\n"
+                             f"\taddi t0, fp, {symbol.offset} \n"))
             self.push("t0")
             return symbol.type
 
@@ -499,7 +563,11 @@ class MainVisitor(MiniDecafVisitor):
         return self.visit(ctx.expr())
 
     def visitTy(self, ctx: MiniDecafParser.TyContext):
-        return IntType()
+        starNum = len(ctx.children) - 1
+        if starNum == 0:
+            return IntType()
+        else:
+            return PointerType(starNum)
 
     # return loopNo++
     def increaseLoopNo(self):
@@ -522,6 +590,23 @@ class MainVisitor(MiniDecafVisitor):
 
     def addsp(self, v: int):
         self.asm.append("\taddi sp, sp, " + str(v * 4) + "\n")
+
+    # 类型检测并转化为右值
+    def checkType(self, actualType, expectedTypeName):
+        if actualType.name != expectedTypeName:
+            raise Exception(f"expect {expectedTypeName}, but found {actualType.name}")
+        return self.RValueCast(actualType)
+
+    def RValueCast(self, actualType):
+        if actualType.valueCat == ValueCat.Rvalue:
+            return actualType
+        else:
+            self.pop("t0")
+            self.asm.append(("# cast lvalue to rvalue\n"
+                             "\tlw t0, 0(t0)\n"
+                             ))
+            self.push("t0")
+            return actualType.valueCast(ValueCat.Rvalue)
 
     # 将寄存器的值压入栈中
     def push(self, reg: str):
